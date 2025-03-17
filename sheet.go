@@ -1,4 +1,4 @@
-package excel
+package excel_import
 
 import (
 	"reflect"
@@ -48,7 +48,7 @@ func ToSheet(model any, prefix string, sheet *Sheet, valueMap map[string]any, pa
 
 	for i := range t.NumField() {
 		field := t.Field(i)
-		tag := field.Tag.Get("excel")
+		tag := field.Tag.Get("csv")
 		if tag == "" || tag == "-" {
 			continue
 		}

@@ -1,4 +1,4 @@
-package excel
+package excel_import
 
 import (
 	"bytes"
@@ -116,7 +116,7 @@ func populateStruct(v reflect.Value, rowData map[string]string, sheetsData map[s
 	var id string
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		tag := field.Tag.Get("excel")
+		tag := field.Tag.Get("csv")
 		if tag == "" || tag == "-" {
 			continue
 		}
@@ -218,7 +218,7 @@ func handleEmbeddedStruct(v reflect.Value, rowData map[string]string, sheetsData
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		tag := field.Tag.Get("excel")
+		tag := field.Tag.Get("csv")
 		if tag == "" || tag == "-" {
 			continue
 		}

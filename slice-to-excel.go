@@ -1,4 +1,4 @@
-package excel
+package excel_import
 
 import (
 	"github.com/xuri/excelize/v2"
