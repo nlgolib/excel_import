@@ -112,21 +112,37 @@ func populateStruct(v reflect.Value, rowData map[string]string, sheetsData map[s
 	relationshipMap map[string][]string, parentID string) error {
 	t := v.Type()
 
-	// First pass: set basic fields and capture ID
-	var id string
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
+		fieldValue := v.Field(i)
+
+		// Handle embedded structs
+		if field.Anonymous {
+			if err := handleEmbeddedStruct(fieldValue, rowData, sheetsData, relationshipMap, parentID); err != nil {
+				return err
+			}
+			continue
+		}
+
 		tag := field.Tag.Get("csv")
 		if tag == "" || tag == "-" {
 			continue
 		}
 
-		// Handle basic types
-		if fieldValue, exists := rowData[tag]; exists {
-			if tag == "ID" || strings.HasSuffix(tag, "ID") {
-				id = fieldValue
+		// Try all possible variations of the field name
+		variations := []string{
+			tag,                  // original
+			strings.ToLower(tag), // lowercase
+			strings.ToUpper(tag), // uppercase
+			"workspace_id",       // specific case for workspace_id
+			"id",                 // specific case for id
+		}
+
+		for _, variant := range variations {
+			if value, exists := rowData[variant]; exists && value != "" {
+				setValue(fieldValue, value)
+				break
 			}
-			setValue(v.Field(i), fieldValue)
 		}
 	}
 
@@ -143,7 +159,7 @@ func populateStruct(v reflect.Value, rowData map[string]string, sheetsData map[s
 		switch field.Type.Kind() {
 		case reflect.Struct:
 			// Handle embedded struct
-			handleEmbeddedStruct(fieldValue, rowData, sheetsData, relationshipMap, id)
+			handleEmbeddedStruct(fieldValue, rowData, sheetsData, relationshipMap, parentID)
 
 		case reflect.Ptr:
 			if field.Type.Elem().Kind() == reflect.Struct {
@@ -153,9 +169,9 @@ func populateStruct(v reflect.Value, rowData map[string]string, sheetsData map[s
 
 				if childRows, exists := sheetsData[childSheetName]; exists {
 					for _, childRow := range childRows {
-						if parentField, exists := childRow["ParentID"]; exists && parentField == id {
+						if parentField, exists := childRow["ParentID"]; exists && parentField == parentID {
 							newStruct := reflect.New(field.Type.Elem()).Elem()
-							if err := populateStruct(newStruct, childRow, sheetsData, relationshipMap, id); err != nil {
+							if err := populateStruct(newStruct, childRow, sheetsData, relationshipMap, parentID); err != nil {
 								return err
 							}
 							fieldValue.Set(newStruct.Addr())
@@ -184,16 +200,16 @@ func populateStruct(v reflect.Value, rowData map[string]string, sheetsData map[s
 					slice := reflect.MakeSlice(field.Type, 0, 0)
 
 					for _, childRow := range childRows {
-						if parentField, exists := childRow["ParentID"]; exists && parentField == id {
+						if parentField, exists := childRow["ParentID"]; exists && parentField == parentID {
 							var elem reflect.Value
 							if isPtr {
 								elem = reflect.New(elemType)
-								if err := populateStruct(elem.Elem(), childRow, sheetsData, relationshipMap, id); err != nil {
+								if err := populateStruct(elem.Elem(), childRow, sheetsData, relationshipMap, parentID); err != nil {
 									return err
 								}
 							} else {
 								elem = reflect.New(elemType).Elem()
-								if err := populateStruct(elem, childRow, sheetsData, relationshipMap, id); err != nil {
+								if err := populateStruct(elem, childRow, sheetsData, relationshipMap, parentID); err != nil {
 									return err
 								}
 							}
@@ -218,13 +234,35 @@ func handleEmbeddedStruct(v reflect.Value, rowData map[string]string, sheetsData
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
+		fieldValue := v.Field(i)
+
+		// If this is another embedded struct, recursively handle it
+		if field.Anonymous {
+			if err := handleEmbeddedStruct(fieldValue, rowData, sheetsData, relationshipMap, parentID); err != nil {
+				return err
+			}
+			continue
+		}
+
 		tag := field.Tag.Get("csv")
 		if tag == "" || tag == "-" {
 			continue
 		}
 
-		if fieldValue, exists := rowData[tag]; exists {
-			setValue(v.Field(i), fieldValue)
+		// Try all possible variations of the field name
+		variations := []string{
+			tag,                  // original
+			strings.ToLower(tag), // lowercase
+			strings.ToUpper(tag), // uppercase
+			"workspace_id",       // specific case for workspace_id
+			"id",                 // specific case for id
+		}
+
+		for _, variant := range variations {
+			if value, exists := rowData[variant]; exists && value != "" {
+				setValue(fieldValue, value)
+				break
+			}
 		}
 	}
 
@@ -250,6 +288,10 @@ func setValue(field reflect.Value, value string) {
 	case reflect.Bool:
 		if v, err := strconv.ParseBool(value); err == nil {
 			field.SetBool(v)
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if v, err := strconv.ParseUint(value, 10, 64); err == nil {
+			field.SetUint(v)
 		}
 	}
 }
