@@ -54,7 +54,8 @@ func ToSheet(model any, prefix string, sheet *Sheet, valueMap map[string]any, pa
 		}
 
 		if field.Anonymous {
-			sheet, valueMap = ToSheet(reflect.ValueOf(model).Field(i).Interface(), "", sheet, valueMap, nil)
+			internalPrefix := prefix
+			sheet, valueMap = ToSheet(reflect.ValueOf(model).Field(i).Interface(), internalPrefix, sheet, valueMap, nil)
 		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
 			internalPrefix := tag
 			if prefix != "" {
