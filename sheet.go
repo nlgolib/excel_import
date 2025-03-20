@@ -37,37 +37,47 @@ func ToSheet(model any, prefix string, sheet *Sheet, valueMap map[string]any, pa
 		sheet.Values = make([]map[string]any, 0)
 	}
 
-	t := reflect.TypeOf(model)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-
 	if valueMap == nil {
 		valueMap = make(map[string]any)
 	}
 
+	t := reflect.TypeOf(model)
+	v := reflect.ValueOf(model)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+		v = v.Elem()
+	}
+
 	for i := range t.NumField() {
 		field := t.Field(i)
+		fieldValue := v.Field(i)
+
+		if field.Anonymous {
+			// Process embedded fields into the same valueMap without appending to Values
+			sheet, _ = ToSheet(fieldValue.Interface(), prefix, sheet, valueMap, sheet)
+			continue
+		}
+
 		tag := field.Tag.Get("csv")
 		if tag == "" || tag == "-" {
 			continue
 		}
 
-		if field.Anonymous {
-			internalPrefix := prefix
-			sheet, valueMap = ToSheet(reflect.ValueOf(model).Field(i).Interface(), internalPrefix, sheet, valueMap, nil)
-		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
+		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
+			if fieldValue.IsNil() {
+				continue // Skip nil struct pointers
+			}
 			internalPrefix := tag
 			if prefix != "" {
 				internalPrefix = prefix + "." + tag
 			}
-			sheet, valueMap = ToSheet(reflect.ValueOf(model).Field(i).Interface(), internalPrefix, sheet, valueMap, nil)
+			sheet, _ = ToSheet(fieldValue.Interface(), internalPrefix, sheet, valueMap, sheet)
 		} else if field.Type.Kind() == reflect.Struct {
 			internalPrefix := tag
 			if prefix != "" {
 				internalPrefix = prefix + "." + tag
 			}
-			sheet, valueMap = ToSheet(reflect.ValueOf(model).Field(i).Interface(), internalPrefix, sheet, valueMap, nil)
+			sheet, _ = ToSheet(fieldValue.Interface(), internalPrefix, sheet, valueMap, sheet)
 		} else if field.Type.Kind() == reflect.Slice {
 			var subSheet *Sheet
 			subSheetName := reflect.TypeOf(model).Field(i).Type.Elem().Name()
@@ -79,8 +89,8 @@ func ToSheet(model any, prefix string, sheet *Sheet, valueMap map[string]any, pa
 			if prefix != "" {
 				internalPrefix = prefix + "." + tag
 			}
-			for j := range reflect.ValueOf(model).Field(i).Len() {
-				subSheet, _ = ToSheet(reflect.ValueOf(model).Field(i).Index(j).Interface(), internalPrefix, subSheet, nil, sheet)
+			for j := range fieldValue.Len() {
+				subSheet, _ = ToSheet(fieldValue.Index(j).Interface(), internalPrefix, subSheet, nil, sheet)
 			}
 			sheet.SubSheets[subSheet.Name] = subSheet
 		} else {
@@ -95,20 +105,20 @@ func ToSheet(model any, prefix string, sheet *Sheet, valueMap map[string]any, pa
 				}
 			}
 
-			var v reflect.Value
-			if reflect.TypeOf(model).Kind() == reflect.Ptr {
-				v = reflect.ValueOf(model).Elem().Field(i)
+			if fieldValue.Kind() == reflect.Ptr {
+				if !fieldValue.IsNil() {
+					valueMap[internalPrefix] = fieldValue.Elem().Interface()
+				}
 			} else {
-				v = reflect.ValueOf(model).Field(i)
+				valueMap[internalPrefix] = fieldValue.Interface()
 			}
-			if v.Kind() == reflect.Ptr {
-				v = v.Elem()
-			}
-			valueMap[internalPrefix] = v.Interface()
 		}
 	}
-	if len(valueMap) > 0 {
+
+	// Only append to Values at the top level (when parent is nil)
+	if parent == nil && len(valueMap) > 0 {
 		sheet.Values = append(sheet.Values, valueMap)
 	}
-	return sheet, nil
+
+	return sheet, valueMap
 }
